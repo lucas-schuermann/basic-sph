@@ -3,16 +3,13 @@
 #else
 #include <GL/glut.h>
 #endif
-
 #include <iostream>
 #include <vector>
 using namespace std;
-
 #include <eigen3/Eigen/Dense>
 using namespace Eigen;
 
-// "Particle-based Viscoelastic Fluid Simluation"
-// solver parameters
+// solver inspired by "Particle-based Viscoelastic Fluid Simluation"
 const static Vector2d G(0.f, -.02f * .25f); // external (gravitational) forces
 const static float spacing = 2.f; // particle spacing/radius
 const static float k = spacing / 1000.f; // far pressure weight
@@ -25,9 +22,7 @@ const static float BETA = 0.2f;
 
 // simulation parameters
 const static float EPS = 1.0f; // boundary epsilon
-const static float SPRING_CONST = 1./8.;
-const static float MAX_VEL = 2.f; // velocity limit for stability
-const static float MAX_VEL_SQ = MAX_VEL*MAX_VEL;
+const static float SPRING_CONST = 1./8.; // boundary spring constant
 
 // neighbor data structure
 // stores index of neighbor particles along with dist and squared dist to particle
@@ -38,7 +33,7 @@ struct Neighbor {
 
 // particle data structure
 // stores position, old position, velocity, and force for Verlet integration
-// stores mass, rho, rho_near, pressure, pressure_near, sigma, and beta values for SPH
+// stores rho, rho_near, pressure, and pressure_near for SPH
 // stores list of neighboring particles for quick access in multiple simulation steps
 struct Particle {
 	Particle(float _x, float _y) : x(_x,_y), x0(_x,_y), v(0.f,0.f), f(0.f,0.f), rho(0.f), rho_near(0.f), p(0.f), p_near(0.f) {}
@@ -48,7 +43,7 @@ struct Particle {
 };
 
 // solver data
-const static int MAX_PARTICLES = 1000;
+const static int MAX_PARTICLES = 2000;
 static vector<Particle> particles;
 
 // rendering projection parameters
@@ -79,7 +74,6 @@ void Render(void)
 	glLoadIdentity();
 	glOrtho(0, VIEW_WIDTH, 0, VIEW_HEIGHT, 0, 1);
 
-
 	glColor4f(0.2f, 0.6f, 1.0f, 1);
 	glBegin(GL_POINTS);
 	for(auto &p : particles)
@@ -89,24 +83,16 @@ void Render(void)
 	glutSwapBuffers();
 }
 
-// Verlet integration
-// spring boundary handling and sanity check
 void Integrate(void)
 {
 	for(auto &p : particles)
 	{
-		// for simplicity, dt=1 assumed in integration
+		// for simplicity, dt=1 assumed in Verlet integration
 		p.x0 = p.x;
 		p.x += p.v;
 		p.x += p.f;
-
-		// apply external forces
-		p.f = G;
+		p.f = G; // external forces
 		p.v = p.x - p.x0;
-
-		// if the velocity is greater than the max velocity, then cut it in half
-		if(p.v.squaredNorm() > MAX_VEL_SQ)
-			p.v = p.v * .5f;
 
 		// enforce boundary condition
 		if(p.x(0)-EPS < 0.0f)
@@ -120,10 +106,8 @@ void Integrate(void)
 	}
 }
 
-// LVSTODO: better description
-// Calculate the density by basically making a weighted sum
-// of the distances of neighboring particles within the radius of support (r)
-void DensityStep(void)
+// calculate density from particle neighbors 
+void ComputeDensity(void)
 {
 	for(int i = 0; i < particles.size(); i++)
 	{
@@ -170,7 +154,7 @@ void DensityStep(void)
 	}
 }
 
-void PressureAndViscosity(void)
+void ComputeForces(void)
 {
 	// pressure
 	for(auto &pi : particles)
@@ -205,19 +189,18 @@ void PressureAndViscosity(void)
 			float q = l / r;
             
 			Vector2d rijn = (rij / l);
-			// Get the projection of the velocities onto the vector between them.
+			// get the projection of the velocities onto the vector between them
 			float u = (pi.v - pj.v).dot(rijn);
 			if(u > 0.f)
 			{
-				// Calculate the viscosity impulse between the two particles
-				// based on the quadratic function of projected length.
+				// calculate the viscosity impulse between the two particles 
+				// based on the quadratic function of projected length
 				Vector2d I = (1.f - q) * (SIGMA * u + BETA * u*u) * rijn;
                 
-				// Apply the impulses on the two particles
+				// apply the impulses on the two particles
 				pi.v -= I * 0.5f;
 				pj.v += I * 0.5f;
 			}
-            
 		}
 	}
 }
@@ -225,8 +208,8 @@ void PressureAndViscosity(void)
 void Update(void)
 { 
  	Integrate();
- 	DensityStep();
-    PressureAndViscosity();
+ 	ComputeDensity();
+    ComputeForces();
 
 	glutPostRedisplay();
 }
@@ -237,11 +220,17 @@ void Keyboard(unsigned char c, __attribute__((unused)) int x, __attribute__((unu
 	{
 	case ' ':
 		if(particles.size() >= MAX_PARTICLES)
-			std::cout << "maximum number of particles reached" << std::endl;
+			cout << "maximum number of particles reached" << endl;
 		else
 			for(float y = VIEW_HEIGHT/1.5f-VIEW_HEIGHT/5.f; y < VIEW_HEIGHT/1.5f+VIEW_HEIGHT/5.f; y += r*0.5f)
 				for(float x = VIEW_WIDTH/2.f-VIEW_HEIGHT/5.f; x <= VIEW_WIDTH/2.f+VIEW_HEIGHT/5.f; x += r*0.5f)
 					particles.push_back(Particle(x,y));
+		break;
+	case 'r':
+	case 'R':
+		cout << "resetting simulation" << endl;
+		particles.clear();
+		InitSPH();
 		break;
 	}
 }
@@ -254,6 +243,9 @@ int main(int argc, char** argv)
 	glutDisplayFunc(Render);
 	glutIdleFunc(Update);
 	glutKeyboardFunc(Keyboard);
+
+	cout << "press [space] to insert a block of particles" << endl;
+	cout << "press [r] to reset dam break simulation" << endl;
 
 	InitGL();
 	InitSPH();
