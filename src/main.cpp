@@ -1,11 +1,14 @@
+#define GL_SILENCE_DEPRECATION
 #if __APPLE__
 #include <GLUT/glut.h>
 #else
 #include <GL/glut.h>
 #endif
+
 #include <iostream>
 #include <vector>
 using namespace std;
+
 #include <eigen3/Eigen/Dense>
 using namespace Eigen;
 
